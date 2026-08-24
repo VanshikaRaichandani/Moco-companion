@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Moco — An AI companion for reflection and emotional support</title>
+<meta name="description" content="Moco is an AI companion designed to talk, remember, and reflect with you." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  /* ============================================================
+     Palette matches Streamlit's actual default dark theme, so the
+     hand-off from this page into the live app (moco-companion
+     .streamlit.app) doesn't jump between two different visual
+     languages. Streamlit dark-theme defaults:
+       background        #0e1117
+       secondaryBackground #262730
+       text               #fafafa
+     Sage green is Moco's own accent (ties to the 🌿 mark used in
+     the actual app's title), kept separate from Streamlit's red
+     primaryColor so the two don't clash.
+     ============================================================ */
+  :root {
+    --bg: #0e1117;
+    --panel: #181c24;
+    --panel-2: #20242e;
+    --ink: #fafafa;
+    --ink-dim: rgba(250,250,250,0.62);
+    --ink-faint: rgba(250,250,250,0.38);
+    --sage: #8fae8b;
+    --sage-soft: rgba(143,174,139,0.14);
+    --line: rgba(250,250,250,0.09);
+    --ease: cubic-bezier(.22,.61,.36,1);
+    --maxw: 1160px;
+    --font: "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font);
+    font-weight: 400;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+
+  a { color: inherit; }
+  a:focus-visible, button:focus-visible, input:focus-visible {
+    outline: 2px solid var(--sage); outline-offset: 3px; border-radius: 4px;
+  }
+
+  .skip-link {
+    position: fixed; top: -60px; left: 16px; z-index: 999;
+    background: var(--ink); color: var(--bg);
+    padding: 10px 16px; border-radius: 8px; font-size: 13px;
+    text-decoration: none; transition: top 0.25s var(--ease);
+  }
+  .skip-link:focus { top: 16px; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; width: 100%; padding: 0 clamp(20px, 5vw, 56px); }
+
+  /* ---- Ambient breathing glow (pure CSS, no WebGL — deliberate
+     choice after repeated Three.js/shader failures. A slow inhale/
+     exhale pulse also happens to fit "reflection and emotional
+     support" as a motif, not just a decoration.) ---- */
+  .glow-field {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+  }
+  .glow {
+    position: absolute; border-radius: 50%;
+    filter: blur(90px);
+    opacity: 0.35;
+    animation: breathe 8s ease-in-out infinite;
+  }
+  .glow-1 { width: 46vw; height: 46vw; background: var(--sage); top: -10%; left: -8%; animation-delay: 0s; }
+  .glow-2 { width: 38vw; height: 38vw; background: #5b6a8f; top: 30%; right: -10%; animation-delay: 2.6s; }
+  .glow-3 { width: 30vw; height: 30vw; background: var(--sage); bottom: -12%; left: 20%; animation-delay: 5.2s; }
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); opacity: 0.28; }
+    50% { transform: scale(1.18); opacity: 0.4; }
+  }
+
+  /* ---- Header ---- */
+  header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 40;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 20px clamp(20px, 5vw, 56px);
+    background: rgba(14,17,23,0);
+    border-bottom: 1px solid transparent;
+    backdrop-filter: blur(10px);
+    transition: background 0.4s var(--ease), border-color 0.4s var(--ease);
+  }
+  header.is-scrolled { background: rgba(14,17,23,0.82); border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
+  .brand .leaf { font-size: 18px; }
+  .navlinks { display: flex; align-items: center; gap: 28px; }
+  .navlinks a {
+    position: relative; font-size: 13px; color: var(--ink-dim); text-decoration: none;
+    transition: color 0.25s; padding-bottom: 3px;
+  }
+  .navlinks a::after {
+    content: ''; position: absolute; left: 0; bottom: 0; height: 1px; width: 0;
+    background: var(--sage); transition: width 0.3s var(--ease);
+  }
+  .navlinks a:hover { color: var(--ink); }
+  .navlinks a:hover::after { width: 100%; }
+  .nav-cta {
+    background: var(--sage); color: #0e1117; font-weight: 600; font-size: 13px;
+    padding: 8px 16px; border-radius: 8px; text-decoration: none;
+    transition: transform 0.2s var(--ease), opacity 0.2s var(--ease);
+  }
+  .nav-cta:hover { transform: translateY(-1px); opacity: 0.92; }
+  @media (max-width: 620px) {
+    .navlinks a:not(.nav-cta) { display: none; }
+    header { padding: 16px 20px; }
+  }
+
+  /* ---- Hero ---- */
+  #hero {
+    position: relative; z-index: 1;
+    min-height: 100vh;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center;
+    padding: 140px 20px 80px;
+  }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--ink-dim);
+    background: var(--panel); border: 1px solid var(--line);
+    padding: 7px 14px; border-radius: 999px;
+    margin-bottom: 28px;
+  }
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--sage);
+    box-shadow: 0 0 0 0 rgba(143,174,139,0.5);
+    animation: pulse-dot 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse-dot {
+    0% { box-shadow: 0 0 0 0 rgba(143,174,139,0.45); }
+    70% { box-shadow: 0 0 0 8px rgba(143,174,139,0); }
+    100% { box-shadow: 0 0 0 0 rgba(143,174,139,0); }
+  }
+  .hero-title {
+    font-size: clamp(44px, 9vw, 96px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    margin-bottom: 20px;
+  }
+  .hero-title .leaf { font-size: 0.55em; vertical-align: 0.08em; }
+  .hero-lead {
+    font-size: clamp(16px, 2vw, 19px);
+    color: var(--ink-dim);
+    max-width: 46ch;
+    margin-bottom: 40px;
+  }
+
+  .hero-input-box {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 8px 8px 22px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel);
+    max-width: 460px; width: 100%;
+    margin: 0 auto;
+    transition: border-color 0.3s var(--ease), box-shadow 0.3s var(--ease);
+  }
+  .hero-input-box:focus-within { border-color: var(--sage); box-shadow: 0 0 0 3px var(--sage-soft); }
+  .hero-input-box input {
+    flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+    color: var(--ink); font-family: var(--font); font-size: 15px;
+  }
+  .hero-input-box input::placeholder { color: var(--ink-faint); }
+  .hero-input-box .send-link {
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    width: 42px; height: 42px; border-radius: 50%;
+    background: var(--sage); color: #0e1117;
+    text-decoration: none; font-size: 18px; font-weight: 600;
+    transition: transform 0.2s var(--ease);
+  }
+  .hero-input-box .send-link:hover { transform: scale(1.06); }
+  .hero-hint {
+    margin-top: 14px; font-size: 12.5px; color: var(--ink-faint);
+  }
+
+  /* ---- Sections ---- */
+  .info-section {
+    position: relative; z-index: 1;
+    max-width: var(--maxw); margin: 0 auto;
+    padding: clamp(64px, 11vh, 108px) clamp(20px, 5vw, 56px);
+    border-top: 1px solid var(--line);
+    display: grid; grid-template-columns: 1fr; gap: 20px;
+  }
+  @media (min-width: 780px) {
+    .info-section { grid-template-columns: 0.9fr 1.4fr; gap: 60px; align-items: start; }
+  }
+  .info-section.reveal-ready {
+    opacity: 0; transform: translateY(28px);
+    transition: opacity 0.7s var(--ease), transform 0.7s var(--ease);
+  }
+  .info-section.reveal-ready.is-visible { opacity: 1; transform: translateY(0); }
+
+  .info-eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.24em; text-transform: uppercase;
+    color: var(--sage);
+  }
+  .info-heading {
+    font-size: clamp(26px, 3.4vw, 38px);
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+    margin-top: 10px;
+  }
+  .info-body { font-size: 16px; color: var(--ink-dim); max-width: 58ch; }
+
+  /* ---- Final CTA ---- */
+  #cta {
+    position: relative; z-index: 1;
+    text-align: center;
+    padding: clamp(80px, 14vh, 140px) 20px;
+    border-top: 1px solid var(--line);
+  }
+  #cta .info-eyebrow { display: block; margin-bottom: 14px; }
+  #cta h2 {
+    font-size: clamp(28px, 4.5vw, 48px); font-weight: 800; letter-spacing: -0.02em;
+    max-width: 20ch; margin: 0 auto 32px;
+  }
+  .big-cta {
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--sage); color: #0e1117;
+    font-weight: 700; font-size: 16px;
+    padding: 16px 32px; border-radius: 999px;
+    text-decoration: none;
+    transition: transform 0.2s var(--ease), opacity 0.2s var(--ease);
+  }
+  .big-cta:hover { transform: translateY(-2px); opacity: 0.92; }
+
+  /* ---- Footer ---- */
+  footer {
+    position: relative; z-index: 1;
+    border-top: 1px solid var(--line);
+    padding: 40px clamp(20px, 5vw, 56px);
+    display: flex; flex-wrap: wrap; gap: 20px;
+    align-items: center; justify-content: space-between;
+    font-size: 13px; color: var(--ink-faint);
+  }
+  footer .brand { font-size: 14px; }
+  footer nav { display: flex; gap: 20px; }
+  footer nav a { text-decoration: none; color: var(--ink-faint); transition: color 0.25s; }
+  footer nav a:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<a href="#main-content" class="skip-link">Skip to content</a>
+<div class="glow-field" aria-hidden="true">
+  <div class="glow glow-1"></div>
+  <div class="glow glow-2"></div>
+  <div class="glow glow-3"></div>
+</div>
+
+<header id="siteHeader">
+  <div class="brand"><span class="leaf">🌿</span> Moco</div>
+  <nav class="navlinks" aria-label="Section navigation">
+    <a href="#idea">Idea</a>
+    <a href="#personality">Personality</a>
+    <a href="#memory">Memory</a>
+    <a href="https://moco-companion.streamlit.app" target="_blank" rel="noopener" class="nav-cta">Open Moco</a>
+  </nav>
+</header>
+
+<main id="main-content">
+<section id="hero">
+  <div class="status-pill"><span class="status-dot" aria-hidden="true"></span>Live · v0.1</div>
+  <h1 class="hero-title"><span class="leaf">🌿</span> Moco</h1>
+  <p class="hero-lead">An AI companion for reflection and emotional support — designed to talk, remember, and check in with you.</p>
+
+  <form class="hero-input-box" id="heroForm" action="https://moco-companion.streamlit.app" method="get" target="_blank">
+    <label for="heroInput" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">Say something to Moco</label>
+    <input type="text" id="heroInput" placeholder="Say something to Moco..." autocomplete="off" />
+    <a href="https://moco-companion.streamlit.app" target="_blank" rel="noopener" class="send-link" id="heroSend" aria-label="Start chatting with Moco">→</a>
+  </form>
+  <p class="hero-hint">Opens the live Moco app in a new tab</p>
+</section>
+
+<section id="idea" class="info-section reveal-ready">
+  <div class="info-eyebrow">The idea</div>
+  <div>
+    <h2 class="info-heading">A companion you can talk to, not a chatbot you configure.</h2>
+    <p class="info-body">Moco started as a landing-page concept and has grown into a working prototype — a Streamlit app backed by the Groq API, with conversation memory stored in SQLite. It's an early build (v0.1), made to explore what a genuinely conversational AI companion could feel like. Still a work in progress, not a finished product.</p>
+  </div>
+</section>
+
+<section id="personality" class="info-section reveal-ready">
+  <div class="info-eyebrow">Personality</div>
+  <div>
+    <h2 class="info-heading">Shaped through conversation design, not a scripted character.</h2>
+    <p class="info-body">Moco's tone comes from prompt and system design rather than a fixed script — right now that means a consistent, calm conversational voice, tuned through iteration on how it responds. It's a starting point, with room to become more distinct as the project develops.</p>
+  </div>
+</section>
+
+<section id="memory" class="info-section reveal-ready">
+  <div class="info-eyebrow">Memory</div>
+  <div>
+    <h2 class="info-heading">Keeps track of what you've told it.</h2>
+    <p class="info-body">Conversations are stored in a database, so Moco can reference things said earlier in a chat instead of starting fresh every time. It's straightforward persistence, not some deep model of who you are — a foundation to build further memory features on top of.</p>
+  </div>
+</section>
+
+<section id="cta">
+  <span class="info-eyebrow">Ready when you are</span>
+  <h2>Moco is live — go talk to it.</h2>
+  <a href="https://moco-companion.streamlit.app" target="_blank" rel="noopener" class="big-cta">Open Moco <span aria-hidden="true">→</span></a>
+</section>
+</main>
+
+<footer>
+  <div class="brand"><span class="leaf">🌿</span> Moco</div>
+  <nav aria-label="Footer navigation">
+    <a href="#idea">Idea</a>
+    <a href="#personality">Personality</a>
+    <a href="#memory">Memory</a>
+    <a href="https://moco-companion.streamlit.app" target="_blank" rel="noopener">Open Moco</a>
+  </nav>
+  <div>An early-stage AI companion project, built by Van.</div>
+</footer>
+
+<script>
+// Progressive enhancement only — every link above already works with zero
+// JS (real <a href> tags, a real <form action>), so if anything here fails
+// the page still functions, it just won't have the scroll-fade polish.
+(function () {
+  // Header background on scroll
+  const header = document.getElementById('siteHeader');
+  if (header) {
+    let ticking = false;
+    const update = () => { header.classList.toggle('is-scrolled', window.scrollY > 30); ticking = false; };
+    window.addEventListener('scroll', () => {
+      if (!ticking) { requestAnimationFrame(update); ticking = true; }
+    }, { passive: true });
+    update();
+  }
+
+  // Scroll-triggered section fade-in. Sections are visible by default
+  // (see .reveal-ready — opacity:0 only applies once this script has
+  // actually run), so a JS failure never leaves content invisible.
+  try {
+    const sections = document.querySelectorAll('.reveal-ready');
+    if ('IntersectionObserver' in window && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.15, rootMargin: '0px 0px -60px 0px' });
+      sections.forEach((s) => observer.observe(s));
+    } else {
+      sections.forEach((s) => s.classList.add('is-visible'));
+    }
+  } catch (e) {
+    document.querySelectorAll('.reveal-ready').forEach((s) => s.classList.add('is-visible'));
+  }
+
+  // Pressing Enter in the hero input submits the form, which opens Moco
+  // in a new tab via the form's own action — no fetch, nothing to break.
+})();
+</script>
+
+</body>
+</html>
